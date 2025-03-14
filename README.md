@@ -4,7 +4,7 @@ A command-line tool for managing DNS records on Hurricane Electric's Free DNS se
 
 ## Overview
 
-`he_dns_manager.py` is a Python-based CLI tool that allows you to manage A and AAAA DNS records on Hurricane Electric DNS. The tool makes it easy to automate DNS record management without using the web interface.
+`he_dns_manager.py` is a Python-based CLI tool that allows you to manage A and AAAA DNS records on Hurricane Electric DNS for already setup zones (aka domains). The tool makes it easy to automate DNS record management without using the web interface.
 
 ## Features
 
