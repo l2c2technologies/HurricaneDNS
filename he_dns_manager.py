@@ -2,7 +2,7 @@
 
 # Name    : he_dns_manager.py
 # Author  : Indranil Das Gupta <indradg@l2c2.co.in>
-# Version : 1.0
+# Version : 1.1
 # License : GNU GPL v3 (or higher)
 
 import argparse
@@ -146,28 +146,43 @@ class HurricaneDNS:
             records = []
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Find all record rows - look for rows with class 'dns_tr' or 'dns_tr_alt'
+            # Find all record rows in the table
             for tr in soup.find_all('tr', class_=['dns_tr', 'dns_tr_alt']):
-                record = {}
                 tds = tr.find_all('td')
-                if len(tds) >= 5:
-                    record_id_match = re.search(r'data-edit-id="([^"]+)"', str(tr))
-                    if record_id_match:
-                        record['id'] = record_id_match.group(1)
-                    record['name'] = tds[1].text.strip()
-                    record['ttl'] = tds[2].text.strip()
-                    record['type'] = tds[3].text.strip()
-                    record['content'] = tds[4].text.strip()
+                if len(tds) >= 5:  # Make sure there are enough columns
+                    record = {}
                     
-                    # Only include A and AAAA records
-                    if record['type'] in self.supported_record_types:
-                        records.append(record)
+                    # First, try to get the record ID from the first column's edit/delete links
+                    record_id = None
+                    first_cell = tds[0] if len(tds) > 0 else None
+                    if first_cell:
+                        for link in first_cell.find_all('a'):
+                            onclick = link.get('onclick', '')
+                            match = re.search(r'(?:delete|edit)_record\((\d+)\)', onclick)
+                            if match:
+                                record_id = match.group(1)
+                                break
+                    
+                    if record_id:
+                        record['id'] = record_id
+                    
+                    # Parse the rest of the record data
+                    # CORRECT field mapping based on observation
+                    if len(tds) >= 5:
+                        record['id'] = tds[1].text.strip()  # HE recordid
+                        record['name'] = tds[2].text.strip()                 # FQDN
+                        record['type'] = tds[3].text.strip()                 # Record type
+                        record['ttl'] = tds[4].text.strip()                  # TTL
+                        
+                        # Only include A and AAAA records
+                        if record['type'] in self.supported_record_types:
+                            records.append(record)
             
             return records
         except Exception as e:
             print(f"Error in get_records: {str(e)}")
             raise
-			
+
     def record_exists(self, zone, record_name, record_type='A'):
         """Check if a record already exists in the zone"""
         if record_type not in self.supported_record_types:
@@ -291,7 +306,7 @@ class HurricaneDNS:
             
             # Check if record was deleted successfully
             success = "successfully removed" in response.text.lower() or "successfully deleted" in response.text.lower()
-            print(f"Record deleted successfully: {success}")
+            print(f"Record '{record_name}' deleted successfully: {success}")
             
             return success
         except Exception as e:
@@ -304,25 +319,23 @@ def main():
     parser.add_argument('-p', '--password', help='Hurricane Electric password')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     parser.add_argument('--domain', help='Domain name to operate on (e.g., example.com)')
+    parser.add_argument('--zone', help='Zone ID to operate on (alternative to --domain)')
     parser.add_argument('--force-delete', action='store_true', help='Delete records without confirmation')
-    
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
     
     # List zones command
-    list_zones_parser = subparsers.add_parser('list-zones', help='List all DNS zones')
+    subparsers.add_parser('list-zones', help='List all zones')
     
     # List records command
-    list_records_parser = subparsers.add_parser('list-records', help='List records for a zone')
-    list_records_parser.add_argument('--zone', help='Zone name or ID (optional if --domain is used)')
+    list_records_parser = subparsers.add_parser('list-records', help='List all records for a zone')
     
-
     # Add subdomain command
     add_subdomain_parser = subparsers.add_parser('add-subdomain', help='Add one or more subdomains')
     add_subdomain_parser.add_argument('subdomains', nargs='+', help='One or more subdomains to add (e.g., test.example.com)')
     add_subdomain_parser.add_argument('--content', help='IP address content')
     add_subdomain_parser.add_argument('--type', choices=['A', 'AAAA'], default='A', help='Record type (default: A)')
     add_subdomain_parser.add_argument('--ttl', type=int, default=300, help='TTL in seconds (default: 300)')
-    
+	
     # Delete subdomain command
     delete_subdomain_parser = subparsers.add_parser('delete-subdomain', help='Delete one or more subdomains')
     delete_subdomain_parser.add_argument('subdomains', nargs='+', help='One or more subdomains to delete (e.g., test.example.com)')
@@ -346,7 +359,6 @@ def main():
         if args.domain:
             zone = client.get_zones(args.domain)
             print(f"Working with domain: {args.domain} (Zone ID: {zone['id']})")
-			
         if args.command == 'list-zones':
             zones = client.get_zones()
             print("\nZones:")
